@@ -1,3 +1,5 @@
+from time import time
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import torch
@@ -100,7 +102,7 @@ def train_epoch(model, train_loader, loss_function, optimizer, device):
         loss.backward()
         # Update the model's parameters
         optimizer.step()
-        total_loss += loss.item() * x_tensor.size(0)
+        total_loss += loss.detach() * x_tensor.size(0)
         total_samples += x_tensor.size(0)
 
     return model, total_loss / total_samples
@@ -136,7 +138,7 @@ def evaluate(model, test_loader, device):
             # Performs a forward pass to get the model's output.
             outputs = model(inputs)
             loss = loss_function(outputs, targets)
-            total_loss += loss.item() * inputs.size(0)
+            total_loss += loss.detach() * inputs.size(0)
             total_samples += inputs.size(0)
              
 
@@ -174,18 +176,31 @@ def main():
 
     # Define the loss function and optimizer
     loss_function = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.2)
 
-    for epoch in range(20):
+    train_loss_history = []
+    val_loss_history = []
+    for epoch in range(10):
+        start_time = time()
+        #torch.mps.synchronize()
         model, loss = train_epoch(model, train_loader, loss_function, optimizer, device)
-        print(f"Epoch {epoch}, Train Loss: {loss:.4f}")
+        train_loss_history.append(loss.item())
+        #torch.mps.synchronize()
+        #print(f"Epoch {epoch}, Train Loss: {loss.item():.4f}, Time: {time() - start_time:.2f}")
         val_loss = evaluate(model, val_loader, device)
-        print(f"Epoch {epoch}, Validation Loss: {val_loss:.4f}")
+        print(f"Epoch {epoch}, Validation Loss: {val_loss.item():.4f}")
+        val_loss_history.append(val_loss.item())
         scheduler.step()
 
 
+    plt.plot(train_loss_history, label='Train Loss')
+    plt.plot(val_loss_history, label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.show()
 
 if __name__ == "__main__":
     main()
