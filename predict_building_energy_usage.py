@@ -25,15 +25,17 @@ class EnergyDataset(Dataset):
 
 
 class EnergyPredictor(nn.Module):
-    def __init__(self, input_dim):
+    def __init__(self, input_dim, dropout=0):
         super(EnergyPredictor, self).__init__()
         self.fc1 = nn.Linear(input_dim, 64)
         self.fc2 = nn.Linear(64, 32)
+        self.dropout = nn.Dropout(dropout)
         self.fc3 = nn.Linear(32, 2)  # Output layer for two targets
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
+        x = self.dropout(x)
         x = self.fc3(x)
         return x    
 
@@ -69,12 +71,12 @@ def process_data_and_features(csv_file):
 
     all_used_columns = predictors + to_predict
 
-    means = energy[all_used_columns].mean(0)
-    stds = energy[all_used_columns].std(0)
+    means = energy[all_used_columns].mean(axis=0)
+    stds = energy[all_used_columns].std(axis=0)
     energy[all_used_columns] = energy[all_used_columns].fillna(means)
     energy[all_used_columns] = (energy[all_used_columns] - means) / stds
 
-
+    return energy[predictors], energy[to_predict]
 
 
 
@@ -83,6 +85,8 @@ def process_data_and_features(csv_file):
 def train_epoch(model, train_loader, loss_function, optimizer, device):
     model.train()
     model=model.to(device)
+    total_loss = 0.0
+    total_samples = 0
     for _, (x_batch, y_batch) in enumerate(train_loader):
         x_tensor = x_batch.to(device)
         y_tensor = y_batch.to(device)
@@ -96,21 +100,65 @@ def train_epoch(model, train_loader, loss_function, optimizer, device):
         loss.backward()
         # Update the model's parameters
         optimizer.step()
-        
+        total_loss += loss.item() * x_tensor.size(0)
+        total_samples += x_tensor.size(0)
 
+    return model, total_loss / total_samples
+
+
+def evaluate(model, test_loader, device):
+    """
+    Evaluates the model's accuracy on a test dataset.
+
+    This function sets the model to evaluation mode, iterates through the test data,
+    and calculates the percentage of correct predictions.
+
+    Args:
+        model: The neural network model to be evaluated.
+        test_loader: A data loader containing the test dataset.
+        device: The device (e.g., 'cpu' or 'cuda') to run the evaluation on.
+
+    Returns:
+        The accuracy of the model on the test dataset as a percentage.
+    """
+    # Sets the model to evaluation mode.
+    model.eval()
+    loss_function = nn.MSELoss()
+    total_loss = 0.0
+    total_samples = 0
+
+    # Disables gradient calculation to reduce memory usage and speed up computations.
+    with torch.no_grad():
+        # Iterates over all batches in the test data loader.
+        for inputs, targets in test_loader:
+            # Moves the input data and targets to the specified device.
+            inputs, targets = inputs.to(device), targets.to(device)
+            # Performs a forward pass to get the model's output.
+            outputs = model(inputs)
+            loss = loss_function(outputs, targets)
+            total_loss += loss.item() * inputs.size(0)
+            total_samples += inputs.size(0)
+             
+
+    # Calculates the overall mean squared error (MSE) loss on the validation set.
+    mse_loss = total_loss / total_samples
+    return mse_loss
+            
 
 def main():
-    energy_df = process_data_and_features('Energy_Usage_2010_20261010.csv')
-    X_train, X_test, y_train, y_test = train_test_split(energy[predictors], energy[to_predict], test_size=0.2, random_state=42)
+    energy_predictors_df, energy_to_predict_df = process_data_and_features('Energy_Usage_2010_20261010.csv')
+    X_train, X_test, y_train, y_test = train_test_split(energy_predictors_df, energy_to_predict_df, test_size=0.2, random_state=42)
 
     train_dataset = EnergyDataset(X_train, y_train)
     val_dataset = EnergyDataset(X_test, y_test)
+    print('train dataset size:', len(train_dataset))
+    print('validation dataset size:', len(val_dataset))
 
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
 
-    model = EnergyPredictor(n_predictors)
+    model = EnergyPredictor(X_train.shape[1], dropout=0.2)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -126,9 +174,19 @@ def main():
 
     # Define the loss function and optimizer
     loss_function = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.1)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.2)
 
     for epoch in range(20):
-        train_epoch(model, train_loader, loss_function, optimizer, device)
+        model, loss = train_epoch(model, train_loader, loss_function, optimizer, device)
+        print(f"Epoch {epoch}, Train Loss: {loss:.4f}")
+        val_loss = evaluate(model, val_loader, device)
+        print(f"Epoch {epoch}, Validation Loss: {val_loss:.4f}")
+        scheduler.step()
 
+
+
+if __name__ == "__main__":
+    main()
 
