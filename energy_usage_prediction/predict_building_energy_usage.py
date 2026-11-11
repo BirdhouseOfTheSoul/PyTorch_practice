@@ -1,4 +1,5 @@
-# A simple practice exercise with pytorch to build a linear regression model to predict energy usage by building using city of chicago energy usage data
+# A simple practice exercise with pytorch to build a logistic regression model to predict energy usage by building using city of chicago energy usage data
+# predict TOTAL THERMS and TOTAL KWH as a function of other building features, which are a mix of numerical and categorical 
 
 from time import time
 import pandas as pd
@@ -41,14 +42,19 @@ class EnergyPredictor(nn.Module):
         return x    
 
 
+def clean_data(energy_df):
+    strings_to_floats=['AVERAGE HOUSESIZE', 'OCCUPIED UNITS', 'RENTER-OCCUPIED HOUSING UNITS', 'OCCUPIED HOUSING UNITS', 'ELECTRICITY ACCOUNTS', 'GAS ACCOUNTS', 'TOTAL POPULATION', 'TOTAL UNITS', 'TOTAL KWH', 'TOTAL THERMS']
+    for col in strings_to_floats: # need to remove commas from number strings
+        energy_df[col]=pd.to_numeric(energy_df[col].apply(lambda x: re.sub(',','',str(x))), errors='coerce')
+    return energy_df
+    
+
 def process_data_and_features(csv_file):
     energy=pd.read_csv(csv_file, dtype={'AVERAGE HOUSESIZE': 'str', 'ZERO KWH ACCOUNTS': 'str', 'CENSUS BLOCK': 'str'})
+    
+    energy=clean_data(energy)
+
     predictors=['COMMUNITY AREA NAME', 'BUILDING TYPE', 'BUILDING_SUBTYPE', 'ELECTRICITY ACCOUNTS', 'GAS ACCOUNTS', 'TOTAL POPULATION', 'TOTAL UNITS', 'AVERAGE STORIES', 'AVERAGE BUILDING AGE', 'AVERAGE HOUSESIZE', 'OCCUPIED UNITS', 'OCCUPIED UNITS PERCENTAGE', 'RENTER-OCCUPIED HOUSING UNITS', 'RENTER-OCCUPIED HOUSING PERCENTAGE', 'OCCUPIED HOUSING UNITS']
-
-    strings_to_floats=['AVERAGE HOUSESIZE', 'OCCUPIED UNITS', 'RENTER-OCCUPIED HOUSING UNITS', 'OCCUPIED HOUSING UNITS', 'ELECTRICITY ACCOUNTS', 'GAS ACCOUNTS', 'TOTAL POPULATION', 'TOTAL UNITS', 'TOTAL KWH', 'TOTAL THERMS']
-    for col in strings_to_floats:
-        energy[col]=pd.to_numeric(energy[col].apply(lambda x: re.sub(',','',str(x))), errors='coerce')
-
     categorical_predictors=['COMMUNITY AREA NAME', 'BUILDING TYPE', 'BUILDING_SUBTYPE']
     to_predict = ['TOTAL KWH', 'TOTAL THERMS']
 
