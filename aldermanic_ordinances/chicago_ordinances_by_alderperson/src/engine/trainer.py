@@ -31,6 +31,8 @@ class Trainer():
         # Begin the main training and validation loop.
         for epoch in range(0, num_epochs):
 
+            print(f"Starting epoch {epoch}")
+
             # --- Training Phase ---
             model, train_loss_epoch = self.train_epoch(model, train_loader, loss_function, optimizer, device)
             print(f"epoch {epoch}, train_loss: {train_loss_epoch:.4f}")

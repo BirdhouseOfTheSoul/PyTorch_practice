@@ -17,9 +17,18 @@ from transformers import AutoModel, AutoTokenizer, AutoModelForSequenceClassific
 
 
 
-def main() -> None:
+def main():
     #seed_everything(42)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"Using device: CUDA")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print(f"Using device: MPS (Apple Silicon GPU)")
+    else:
+        device = torch.device("cpu")
+        print(f"Using device: CPU")
+
     aldermanic_ordinances = pd.read_csv("data/Ordinance_Detail-Table.csv").dropna(subset=["Title", "Alderperson"])
     tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
 
@@ -65,7 +74,7 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     loss_function = nn.CrossEntropyLoss(weight=class_weights)
 
-    print(model)
+    #print(model)
     for name, param in model.named_parameters():
         if name.startswith("classifier"):
             param.requires_grad = True
@@ -80,7 +89,7 @@ def main() -> None:
         print(f"param {name} requires_grad: {param.requires_grad}")
 
     trainer = Trainer()
-    trainer.train(model, train_loader, val_loader, loss_function, optimizer, num_epochs=5, device=device)
+    trainer.train(model, train_loader, val_loader, loss_function, optimizer, num_epochs=1, device=device)
 
 
 
