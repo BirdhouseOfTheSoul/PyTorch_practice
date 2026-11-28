@@ -1,31 +1,37 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 
 import re
 from pathlib import Path
 
 
 from langchain_core.documents import Document
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.agents import create_agent
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
-from google import genai
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.vectorstores import InMemoryVectorStore
+
 from langchain_core.prompts import PromptTemplate
 
+import gradio as gr
+from gradio.components import Textbox
+import argparse
 
 
+def main():
 
-def main() -> None:
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--batch-file", help="Path to the batch file containing queries", required=False, action="store")
+    args = parser.parse_args()
+    batch_file = args.batch_file
+
     source_path = Path(__file__).with_name("chicago-il-1.txt")
     text = source_path.read_text(encoding="utf-8", errors="ignore")
+
+    #parse the text file using the co-pilot parser function
     sections = parse_sections(text)
     print(f"Parsed {len(sections)} sections from the municipal code.")
-    #for i in range(0,10):
-    #    print("--------------------")
-    #    print(sections[i])
-    #    print("--------------------")
+
 
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1200,
@@ -43,8 +49,9 @@ def main() -> None:
     #query_embedding = embeddings.embed_query("What is a sentence embedding?")
     #doc_embeddings = embeddings.embed_documents([doc.page_content for doc in docs[0:100]])
 
-    docsearch = Chroma.from_documents(docs[0:1000], embeddings)  # store the embedding in docsearch using Chromadb
-    print('documents loaded into ChromaDB')
+    vector_store = InMemoryVectorStore(embeddings)
+    vector_store.add_documents(docs[1:1000])  # Add documents to the vector store
+    print('documents loaded into vector store')
 
     #results = docsearch.similarity_search("Can i have a nuclear weapon in Chicago?", k=3)
     #for doc in results:
@@ -52,10 +59,16 @@ def main() -> None:
     #    print(doc.page_content, doc.metadata)
     #    print("--------------------")
 
+
+    agent = create_agent(
+        model="google_genai:gemini-4-hydrogen",
+        system_prompt="You are a helpful assistant that answers questions about the Chicago Municipal Code.",
+    )
+
   
     template = """ 
-        Answer the question as truthfully as possible using the provided context, 
-        and if the answer is not contained within the text below, say "I don't know.
+        Answer the question using the provided context, and cite the section number and/or title number of the relevant section(s) in your answer.
+        If the answer is not contained within the text below, say "I don't know."
 
         {query}
         
@@ -67,26 +80,54 @@ def main() -> None:
         template=template,
     )
     
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-4-hydrogen",
-        temperature=0.7,
-    )
+    
 
-    while True:
-        query = input("Enter your question (or 'exit' to quit): ")
-        if query.lower() == "exit":
-            break
+
+    def qa_interface(query):
 
         # Perform a similarity search to find relevant documents
-        results = docsearch.similarity_search(query, k=3)
-        context = "\n\n".join([doc.page_content for doc in results])
+        results = vector_store.similarity_search(query, k=3)
+        context = "\n\n".join([doc.metadata.get("section", "Unknown Section") + ': ' + doc.metadata.get("section_title", "Unknown Title") for doc in results])
+
+        print(f"Query: {query}\n")
+        print(f"Context sections: {context}\n")
 
         # Format the prompt with the query and context
         prompt = langchain_prompt.format(query=query, context=context)
 
         # Get the response from the LLM
-        response = llm.invoke(prompt)
-        print(response.content[0]['text'])
+        response = agent.invoke(
+            {"messages": [{"role": "user", "content": prompt}]}
+        )
+        response_text = response['messages'][-1].content[0]['text']  # Extract the text from the response
+        print(response_text)
+        return response_text # Return the output text from the response
+
+    
+
+
+    if batch_file:
+        
+        # Read queries from the batch file and process them
+        with open(batch_file, 'r') as f:
+            queries = f.readlines()
+
+        for query in queries:
+            query = query.strip()
+            if query:
+                answer = qa_interface(query)
+                print(f"Answer: {answer}\n")
+
+
+    else:    
+
+        demo=gr.Interface(fn=qa_interface, 
+                     inputs=Textbox(lines=2), 
+                     outputs=Textbox(lines=10), 
+                     title="Chicago Municipal Code Q&A", 
+                     description="Ask questions about the Chicago Municipal Code.")
+
+        demo.launch(server_name="127.0.0.1", server_port= 7860)
     
 
 
@@ -94,8 +135,7 @@ def main() -> None:
 
 
 
-
-#written by copilot
+#written by copilot, not reviewed yet
 CHAPTER_HEADER_RE = re.compile(
     r"^CHAPTER\s+(?P<chapter>\d+(?:\.\d+)*-\d+(?:\.\d+)*)\s*$",
     re.IGNORECASE,
